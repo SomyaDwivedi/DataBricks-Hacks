@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Home, MapPin, DollarSign, Bed, Bath, Square } from 'lucide-react';
+import { sendMessageToDatabricks, getListingsFromDatabricks } from './services/Api';
 
 // Types
 interface Message {
@@ -22,63 +23,9 @@ interface RealEstateListing {
 }
 
 interface UserPreferences {
-  budget: string;
-  location: string;
-  propertyType: string;
-  bedrooms: string;
+  area: string;
+  persona: string;
 }
-
-// Mock API functions - replace with actual Databricks endpoints
-const mockApiCall = (delay: number = 1000) => 
-  new Promise(resolve => setTimeout(resolve, delay));
-
-const sendMessageToDatabricks = async (message: string, preferences: UserPreferences) => {
-  await mockApiCall(1500);
-  // TODO: Replace with actual Databricks API call
-  const payload = {
-    message,
-    user_preferences: preferences,
-    session_id: 'user-session-123'
-  };
-  console.log('Sending to Databricks:', payload);
-  return "Thanks for that information! Let me help you find the perfect property.";
-};
-
-const getListingsFromDatabricks = async (preferences: UserPreferences): Promise<RealEstateListing[]> => {
-  await mockApiCall(2000);
-  // TODO: Replace with actual Databricks API call
-  const payload = {
-    budget: preferences.budget,
-    location: preferences.location,
-    property_type: preferences.propertyType,
-    bedrooms: preferences.bedrooms
-  };
-  console.log('Fetching listings from Databricks:', payload);
-  
-  // Mock listings data
-  return [
-    {
-      id: '1',
-      address: '123 Oak Street, Downtown',
-      price: 450000,
-      bedrooms: 3,
-      bathrooms: 2,
-      sqft: 1800,
-      imageUrl: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400',
-      description: 'Beautiful modern home with updated kitchen and spacious backyard.'
-    },
-    {
-      id: '2',
-      address: '456 Pine Avenue, Suburbs',
-      price: 325000,
-      bedrooms: 2,
-      bathrooms: 1.5,
-      sqft: 1200,
-      imageUrl: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=400',
-      description: 'Cozy starter home in quiet neighborhood with great schools nearby.'
-    }
-  ];
-};
 
 // Components
 const LoadingIndicator: React.FC = () => (
@@ -191,26 +138,22 @@ const RealEstateChatbot: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Hi! I'm here to help you find your perfect home. Let's start with a few questions. What's your budget range?",
+      text: "Hi! I'm here to help you find your perfect home. Let's start with a quick question. Which area are you interested in?",
       isBot: true,
       timestamp: new Date()
     }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>({
-    budget: '',
-    location: '',
-    propertyType: '',
-    bedrooms: ''
+    area: '',
+    persona: ''
   });
   const [questionStep, setQuestionStep] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const questions = [
-    { key: 'budget' as keyof UserPreferences, text: "What's your budget range?" },
-    { key: 'location' as keyof UserPreferences, text: "Which area or neighborhood are you interested in?" },
-    { key: 'propertyType' as keyof UserPreferences, text: "What type of property are you looking for? (house, condo, apartment, etc.)" },
-    { key: 'bedrooms' as keyof UserPreferences, text: "How many bedrooms do you need?" }
+    { key: 'area' as keyof UserPreferences, text: "Which area are you interested in?" },
+    { key: 'persona' as keyof UserPreferences, text: "What's your persona or lifestyle? (e.g., city extrovert, quiet family person, young professional, etc.)" }
   ];
 
   const scrollToBottom = () => {
@@ -247,28 +190,40 @@ const RealEstateChatbot: React.FC = () => {
         };
         setUserPreferences(updatedPreferences);
 
-        // Send to Databricks for processing
-        await sendMessageToDatabricks(message, updatedPreferences);
-
-        // Move to next question or show listings
         if (questionStep < questions.length - 1) {
+          // Move to next question
           const nextQuestion = questions[questionStep + 1];
           addMessage(nextQuestion.text, true);
           setQuestionStep(questionStep + 1);
         } else {
-          // All questions answered, fetch listings
+          // Both questions answered, send to Databricks
           addMessage("Perfect! Let me search for properties that match your criteria...", true);
-          const listings = await getListingsFromDatabricks(updatedPreferences);
-          addMessage("Here are some properties I found for you:", true, listings);
+          
+          // Create the formatted message for Databricks
+          const searchMessage = `I'm looking for properties in ${updatedPreferences.area} and I'm a ${updatedPreferences.persona}`;
+          
+          try {
+            const response = await sendMessageToDatabricks(searchMessage, updatedPreferences);
+            addMessage(response, true);
+            
+            // Remove the listings call - no property cards will be shown
+            // const listings = await getListingsFromDatabricks(updatedPreferences);
+            // if (listings && listings.length > 0) {
+            //   addMessage("Here are some properties I found for you:", true, listings);
+            // }
+          } catch (error) {
+            console.error('Error fetching from Databricks:', error);
+            addMessage("I found your preferences! Based on your interest in " + updatedPreferences.area + " and being a " + updatedPreferences.persona + ", I can help you find suitable properties. Let me know if you have any specific questions!", true);
+          }
         }
       } else {
-        // Handle follow-up questions
+        // Handle follow-up questions after both questions are answered
         const response = await sendMessageToDatabricks(message, userPreferences);
         addMessage(response, true);
       }
     } catch (error) {
       console.error('Error:', error);
-      addMessage("Sorry, I encountered an error. Please try again.", true);
+      addMessage("I'm having trouble connecting to our property database right now, but I can still help you with general advice about your area and preferences!", true);
     } finally {
       setIsLoading(false);
     }
@@ -284,7 +239,7 @@ const RealEstateChatbot: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Real Estate Assistant</h1>
-            <p className="text-sm text-gray-600">Find your perfect home</p>
+            <p className="text-sm text-gray-600">Find your perfect home with AI</p>
           </div>
         </div>
       </div>

@@ -19,8 +19,6 @@ export interface RealEstateListing {
 }
 
 export interface UserPreferences {
-  budget: string;
-  location: string;
-  propertyType: string;
-  bedrooms: string;
+  area: string;
+  persona: string;
 }

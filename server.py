@@ -7,10 +7,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 from datetime import datetime
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +22,12 @@ DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN")
 if not DATABRICKS_TOKEN:
     logger.warning("DATABRICKS_TOKEN environment variable not set!")
 
+def create_tf_serving_json(data):
+    """Convert data to TensorFlow serving format"""
+    if isinstance(data, dict):
+        return {'inputs': {name: data[name].tolist() for name in data.keys()}}
+    return data.tolist()
+
 def score_model(dataset):
     """Score model using Databricks serving endpoint"""
     headers = {
@@ -33,9 +35,13 @@ def score_model(dataset):
         'Content-Type': 'application/json'
     }
     
-    # For chat/LLM endpoints, send the data directly as JSON
-    # Don't use TensorFlow serving format for LLM models
-    data_json = json.dumps(dataset, allow_nan=True)
+    # Prepare data based on type
+    if isinstance(dataset, pd.DataFrame):
+        ds_dict = {'dataframe_split': dataset.to_dict(orient='split')}
+    else:
+        ds_dict = create_tf_serving_json(dataset)
+    
+    data_json = json.dumps(ds_dict, allow_nan=True)
     
     try:
         response = requests.post(
@@ -145,20 +151,12 @@ def get_listings():
         
         # Extract response from Databricks
         ai_response = ""
-        if 'messages' in result and result['messages']:
-            # Look for the last assistant message with content
-            for message in reversed(result['messages']):
-                if message.get('role') == 'assistant' and message.get('content'):
-                    ai_response = message.get('content', '')
-                    break
-        elif 'choices' in result and result['choices']:
+        if 'choices' in result and result['choices']:
             ai_response = result['choices'][0].get('message', {}).get('content', '')
         elif 'predictions' in result:
             ai_response = result['predictions'][0] if result['predictions'] else ''
         else:
             ai_response = str(result)
-        
-        logger.info(f"AI Response: {ai_response[:200]}...")
         
         # Try to parse JSON from AI response
         listings = []
@@ -180,8 +178,7 @@ def get_listings():
             return jsonify({
                 'success': False,
                 'error': 'Could not parse property listings from AI response',
-                'raw_response': ai_response,
-                'full_databricks_response': result
+                'raw_response': ai_response
             }), 500
         
         # Validate listings structure
